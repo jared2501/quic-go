@@ -18,6 +18,39 @@ type StreamScheduler interface {
 	NextActiveStream() protocol.StreamID
 }
 
+type IntHeap []int
+
+func (h IntHeap) Len() int           { return len(h) }
+func (h IntHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h IntHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+type strictPriorityStreamScheduler struct {
+	streamQueue []protocol.StreamID
+}
+
+func (ss *strictPriorityStreamScheduler) AddActiveStream(id protocol.StreamID) {
+	ss.streamQueue = append(ss.streamQueue, id)
+}
+
+func (ss *strictPriorityStreamScheduler) RemoveActiveStream(id protocol.StreamID) {
+	for i := 0; i < len(ss.streamQueue)-1; i++ {
+		if ss.streamQueue[i] == id {
+			ss.streamQueue = append(ss.streamQueue[:i], ss.streamQueue[i+1:]...)
+			break
+		}
+	}
+}
+
+func (ss *strictPriorityStreamScheduler) NextActiveStream() protocol.StreamID {
+	var min = ss.streamQueue[0]
+	for _, e := range ss.streamQueue {
+		if e < min {
+			min = e
+		}
+	}
+	return min
+}
+
 type roundRobbinStreamScheduler struct {
 	streamQueue []protocol.StreamID
 }
@@ -66,7 +99,7 @@ func newStreamFramer(
 		streamGetter:    streamGetter,
 		cryptoStream:    cryptoStream,
 		activeStreams:   make(map[protocol.StreamID]struct{}),
-		streamScheduler: &roundRobbinStreamScheduler{},
+		streamScheduler: &strictPriorityStreamScheduler{},
 		version:         v,
 	}
 }
