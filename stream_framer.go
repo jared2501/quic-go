@@ -33,7 +33,7 @@ func (ss *strictPriorityStreamScheduler) AddActiveStream(id protocol.StreamID) {
 }
 
 func (ss *strictPriorityStreamScheduler) RemoveActiveStream(id protocol.StreamID) {
-	for i := 0; i < len(ss.streamQueue)-1; i++ {
+	for i := 0; i < len(ss.streamQueue); i++ {
 		if ss.streamQueue[i] == id {
 			ss.streamQueue = append(ss.streamQueue[:i], ss.streamQueue[i+1:]...)
 			break
@@ -139,8 +139,7 @@ func (f *streamFramer) PopStreamFrames(maxTotalLen protocol.ByteCount) []*wire.S
 	var frames []*wire.StreamFrame
 	f.streamQueueMutex.Lock()
 	// pop STREAM frames, until less than MinStreamFrameSize bytes are left in the packet or there are no more active streams
-	numActiveStreams := len(f.activeStreams)
-	for i := 0; i < numActiveStreams; i++ {
+	for len(f.activeStreams) != 0 {
 		if maxTotalLen-currentLen < protocol.MinStreamFrameSize {
 			break
 		}
