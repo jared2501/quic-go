@@ -70,7 +70,7 @@ func NewSentPacketHandler(rttStats *congestion.RTTStats) SentPacketHandler {
 	congestion := congestion.NewCubicSender(
 		congestion.DefaultClock{},
 		rttStats,
-		false, /* don't use reno since chromium doesn't (why?) */
+		true,
 		protocol.InitialCongestionWindow,
 		protocol.DefaultMaxCongestionWindow,
 	)
