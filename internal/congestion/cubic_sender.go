@@ -9,8 +9,8 @@ import (
 
 const (
 	maxBurstBytes                                        = 3 * protocol.DefaultTCPMSS
-	defaultMinimumCongestionWindow protocol.PacketNumber = 2
-	renoBeta                       float32               = 0.7 // Reno backoff factor.
+	defaultMinimumCongestionWindow protocol.PacketNumber = 20
+	renoBeta                       float32               = 0.3 // Reno backoff factor.
 )
 
 type cubicSender struct {
@@ -114,7 +114,7 @@ func (c *cubicSender) InSlowStart() bool {
 }
 
 func (c *cubicSender) GetCongestionWindow() protocol.ByteCount {
-	return protocol.ByteCount(c.congestionWindow) * protocol.DefaultTCPMSS
+	return 200 * protocol.DefaultTCPMSS
 }
 
 func (c *cubicSender) GetSlowStartThreshold() protocol.ByteCount {
@@ -269,7 +269,7 @@ func (c *cubicSender) OnRetransmissionTimeout(packetsRetransmitted bool) {
 	}
 	c.hybridSlowStart.Restart()
 	c.cubic.Reset()
-	c.slowstartThreshold = c.congestionWindow / 2
+	c.slowstartThreshold = c.congestionWindow * 3 / 4
 	c.congestionWindow = c.minCongestionWindow
 }
 
