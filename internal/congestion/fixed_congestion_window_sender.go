@@ -11,7 +11,7 @@ type FixedCongestionWindowSender struct {
 }
 
 func (s *FixedCongestionWindowSender) TimeUntilSend(bytesInFlight protocol.ByteCount) time.Duration {
-	return s.RttStats.SmoothedRTT() / time.Duration(2*s.CongestionWindow/protocol.DefaultTCPMSS)
+	return s.RttStats.SmoothedRTT() / time.Duration(2*s.CongestionWindow)
 }
 
 func (s *FixedCongestionWindowSender) OnPacketSent(sentTime time.Time, bytesInFlight protocol.ByteCount, packetNumber protocol.PacketNumber, bytes protocol.ByteCount, isRetransmittable bool) bool {
@@ -19,7 +19,7 @@ func (s *FixedCongestionWindowSender) OnPacketSent(sentTime time.Time, bytesInFl
 }
 
 func (s *FixedCongestionWindowSender) GetCongestionWindow() protocol.ByteCount {
-	return s.CongestionWindow
+	return s.CongestionWindow * protocol.DefaultTCPMSS
 }
 
 func (s *FixedCongestionWindowSender) MaybeExitSlowStart() {
