@@ -40,10 +40,19 @@ func (f *streamFramer) AddActiveStream(id protocol.StreamID) {
 	}
 	f.streamQueueMutex.Lock()
 	if _, ok := f.activeStreams[id]; !ok {
-		f.streamQueue = append(f.streamQueue, id)
+		f.streamQueue = insertIntoSortedArray(f.streamQueue, id)
 		f.activeStreams[id] = struct{}{}
 	}
 	f.streamQueueMutex.Unlock()
+}
+
+func insertIntoSortedArray(arr []protocol.StreamID, el protocol.StreamID) []protocol.StreamID {
+	for i := 0; i < len(arr); i++ {
+		if arr[i] > el {
+			return append(arr[:i], append([]protocol.StreamID{el}, arr[i:]...)...)
+		}
+	}
+	return append(arr, el)
 }
 
 func (f *streamFramer) HasCryptoStreamData() bool {
@@ -72,20 +81,19 @@ func (f *streamFramer) PopStreamFrames(maxTotalLen protocol.ByteCount) []*wire.S
 			break
 		}
 		id := f.streamQueue[0]
-		f.streamQueue = f.streamQueue[1:]
 		// This should never return an error. Better check it anyway.
 		// The stream will only be in the streamQueue, if it enqueued itself there.
 		str, err := f.streamGetter.GetOrOpenSendStream(id)
 		// The stream can be nil if it completed after it said it had data.
 		if str == nil || err != nil {
 			delete(f.activeStreams, id)
+			f.streamQueue = f.streamQueue[1:]
 			continue
 		}
 		frame, hasMoreData := str.popStreamFrame(maxTotalLen - currentLen)
-		if hasMoreData { // put the stream back in the queue (at the end)
-			f.streamQueue = append(f.streamQueue, id)
-		} else { // no more data to send. Stream is not active any more
+		if !hasMoreData { // no more data to send. Stream is not active any more
 			delete(f.activeStreams, id)
+			f.streamQueue = f.streamQueue[1:]
 		}
 		if frame == nil { // can happen if the receiveStream was canceled after it said it had data
 			continue
