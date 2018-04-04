@@ -69,7 +69,13 @@ type sentPacketHandler struct {
 
 // NewSentPacketHandler creates a new sentPacketHandler
 func NewSentPacketHandler(rttStats *congestion.RTTStats) SentPacketHandler {
-	congestion := &congestion.FixedCongestionWindowSender{CongestionWindow: 150, RttStats: rttStats}
+	congestion := congestion.NewCubicSender(
+		congestion.DefaultClock{},
+		rttStats,
+		false, /* don't use reno since chromium doesn't (why?) */
+		protocol.InitialCongestionWindow,
+		protocol.DefaultMaxCongestionWindow,
+	)
 
 	return &sentPacketHandler{
 		packetHistory:      newSentPacketHistory(),
