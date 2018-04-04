@@ -91,6 +91,7 @@ var _ = Describe("Client Crypto Setup", func() {
 		shloMap                 map[Tag][]byte
 		handshakeEvent          chan struct{}
 		paramsChan              chan TransportParameters
+		divNonceChan            chan<- []byte
 	)
 
 	BeforeEach(func() {
@@ -119,7 +120,7 @@ var _ = Describe("Client Crypto Setup", func() {
 		// use a buffered channel here, so that we can parse a SHLO without having to receive the TransportParameters to avoid blocking
 		paramsChan = make(chan TransportParameters, 1)
 		handshakeEvent = make(chan struct{}, 2)
-		csInt, err := NewCryptoSetupClient(
+		csInt, dnc, err := NewCryptoSetupClient(
 			stream,
 			"hostname",
 			0,
@@ -130,6 +131,7 @@ var _ = Describe("Client Crypto Setup", func() {
 			handshakeEvent,
 			protocol.Version39,
 			nil,
+			utils.DefaultLogger,
 		)
 		Expect(err).ToNot(HaveOccurred())
 		cs = csInt.(*cryptoSetupClient)
@@ -137,6 +139,7 @@ var _ = Describe("Client Crypto Setup", func() {
 		cs.keyDerivation = keyDerivation
 		cs.nullAEAD = mockcrypto.NewMockAEAD(mockCtrl)
 		cs.cryptoStream = stream
+		divNonceChan = dnc
 	})
 
 	Context("Reading REJ", func() {
@@ -723,7 +726,7 @@ var _ = Describe("Client Crypto Setup", func() {
 			cs.diversificationNonce = nil
 			cs.serverVerified = true
 			Expect(cs.secureAEAD).To(BeNil())
-			cs.SetDiversificationNonce([]byte("div"))
+			divNonceChan <- []byte("div")
 			Eventually(handshakeEvent).Should(Receive())
 			Expect(cs.secureAEAD).ToNot(BeNil())
 			Expect(handshakeEvent).ToNot(Receive())
@@ -923,7 +926,7 @@ var _ = Describe("Client Crypto Setup", func() {
 				close(done)
 			}()
 			nonce := []byte("foobar")
-			cs.SetDiversificationNonce(nonce)
+			divNonceChan <- nonce
 			Eventually(func() []byte { return cs.diversificationNonce }).Should(Equal(nonce))
 			// make the go routine return
 			stream.close()
@@ -939,8 +942,8 @@ var _ = Describe("Client Crypto Setup", func() {
 				close(done)
 			}()
 			nonce := []byte("foobar")
-			cs.SetDiversificationNonce(nonce)
-			cs.SetDiversificationNonce(nonce)
+			divNonceChan <- nonce
+			divNonceChan <- nonce
 			Eventually(func() []byte { return cs.diversificationNonce }).Should(Equal(nonce))
 			// make the go routine return
 			stream.close()
@@ -957,8 +960,8 @@ var _ = Describe("Client Crypto Setup", func() {
 			}()
 			nonce1 := []byte("foobar")
 			nonce2 := []byte("raboof")
-			cs.SetDiversificationNonce(nonce1)
-			cs.SetDiversificationNonce(nonce2)
+			divNonceChan <- nonce1
+			divNonceChan <- nonce2
 			Eventually(done).Should(BeClosed())
 		})
 	})
