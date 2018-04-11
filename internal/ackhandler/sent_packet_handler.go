@@ -61,6 +61,8 @@ type sentPacketHandler struct {
 
 	// The number of times an RTO has been sent without receiving an ack.
 	rtoCount uint32
+	// The number of RTO probe packets that should be sent.
+	numRTOs int
 
 	// The time at which the next packet will be considered lost based on early transmit or exceeding the reordering window in time.
 	lossTime time.Time
@@ -344,6 +346,7 @@ func (h *sentPacketHandler) OnAlarm() error {
 	} else {
 		// RTO
 		h.rtoCount++
+		h.numRTOs += 2
 		err = h.queueRTOs()
 	}
 	if err != nil {
@@ -459,14 +462,18 @@ func (h *sentPacketHandler) SendMode() SendMode {
 		h.logger.Debugf("Limited by the number of tracked packets: tracking %d packets, maximum %d", numTrackedPackets, protocol.MaxTrackedSentPackets)
 		return SendNone
 	}
-	// Send retransmissions first, if there are any.
-	if len(h.retransmissionQueue) > 0 {
-		return SendRetransmission
+	if h.numRTOs > 0 {
+		h.numRTOs--
+		return SendRTO
 	}
 	// Only send ACKs if we're congestion limited.
 	if cwnd := h.congestion.GetCongestionWindow(); h.bytesInFlight > cwnd {
 		h.logger.Debugf("Congestion limited: bytes in flight %d, window %d", h.bytesInFlight, cwnd)
 		return SendAck
+	}
+	// Send retransmissions first, if there are any.
+	if len(h.retransmissionQueue) > 0 {
+		return SendRetransmission
 	}
 	if numTrackedPackets >= protocol.MaxOutstandingSentPackets {
 		h.logger.Debugf("Max outstanding limited: tracking %d packets, maximum: %d", numTrackedPackets, protocol.MaxOutstandingSentPackets)
@@ -480,6 +487,10 @@ func (h *sentPacketHandler) TimeUntilSend() time.Time {
 }
 
 func (h *sentPacketHandler) ShouldSendNumPackets() int {
+	if h.numRTOs > 0 {
+		// RTO probes should not be paced, but must be sent immediately.
+		return h.numRTOs
+	}
 	delay := h.congestion.TimeUntilSend(h.bytesInFlight)
 	if delay == 0 || delay > protocol.MinPacingDelay {
 		return 1

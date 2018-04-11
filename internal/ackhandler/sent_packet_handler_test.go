@@ -644,19 +644,34 @@ var _ = Describe("SentPacketHandler", func() {
 			Expect(handler.SendMode()).To(Equal(SendAck))
 		})
 
+		It("doesn't allow retransmission if congestion limited", func() {
+			handler.bytesInFlight = 100
+			handler.retransmissionQueue = []*Packet{{PacketNumber: 3}}
+			cong.EXPECT().GetCongestionWindow().Return(protocol.ByteCount(50))
+			Expect(handler.SendMode()).To(Equal(SendAck))
+		})
+
 		It("allows sending retransmissions", func() {
-			// note that we don't EXPECT a call to GetCongestionWindow
-			// that means retransmissions are sent without considering the congestion window
+			cong.EXPECT().GetCongestionWindow().Return(protocol.MaxByteCount)
 			handler.retransmissionQueue = []*Packet{{PacketNumber: 3}}
 			Expect(handler.SendMode()).To(Equal(SendRetransmission))
 		})
 
 		It("allow retransmissions, if we're keeping track of between MaxOutstandingSentPackets and MaxTrackedSentPackets packets", func() {
+			cong.EXPECT().GetCongestionWindow().Return(protocol.MaxByteCount)
 			Expect(protocol.MaxOutstandingSentPackets).To(BeNumerically("<", protocol.MaxTrackedSentPackets))
 			handler.retransmissionQueue = make([]*Packet, protocol.MaxOutstandingSentPackets+10)
 			Expect(handler.SendMode()).To(Equal(SendRetransmission))
 			handler.retransmissionQueue = make([]*Packet, protocol.MaxTrackedSentPackets)
 			Expect(handler.SendMode()).To(Equal(SendNone))
+		})
+
+		It("allows RTOs, even when congestion limited", func() {
+			// note that we don't EXPECT a call to GetCongestionWindow
+			// that means retransmissions are sent without considering the congestion window
+			handler.numRTOs = 1
+			handler.retransmissionQueue = []*Packet{{PacketNumber: 3}}
+			Expect(handler.SendMode()).To(Equal(SendRTO))
 		})
 
 		It("gets the pacing delay", func() {
@@ -666,6 +681,11 @@ var _ = Describe("SentPacketHandler", func() {
 			cong.EXPECT().TimeUntilSend(protocol.ByteCount(100)).Return(time.Hour)
 			handler.SentPacket(&Packet{PacketNumber: 1, SendTime: sendTime})
 			Expect(handler.TimeUntilSend()).To(Equal(sendTime.Add(time.Hour)))
+		})
+
+		It("allows sending of all RTO probe packets", func() {
+			handler.numRTOs = 5
+			Expect(handler.ShouldSendNumPackets()).To(Equal(5))
 		})
 
 		It("allows sending of one packet, if it should be sent immediately", func() {
