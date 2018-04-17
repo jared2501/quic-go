@@ -118,14 +118,9 @@ func (m *incomingItemsMap) DeleteStream(id protocol.StreamID) error {
 	return nil
 }
 
-func (m *incomingItemsMap) CloseWithError(err error) map[protocol.StreamID]item {
+func (m *incomingItemsMap) CloseWithError(err error) {
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	m.closeErr = err
+	m.mutex.Unlock()
 	m.cond.Broadcast()
-	streams := make(map[protocol.StreamID]item)
-	for k, v := range m.streams {
-		streams[k] = v
-	}
-	return streams
 }

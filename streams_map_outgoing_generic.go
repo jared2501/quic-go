@@ -116,14 +116,9 @@ func (m *outgoingItemsMap) SetMaxStream(id protocol.StreamID) {
 	m.mutex.Unlock()
 }
 
-func (m *outgoingItemsMap) CloseWithError(err error) map[protocol.StreamID]item {
+func (m *outgoingItemsMap) CloseWithError(err error) {
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	m.closeErr = err
 	m.cond.Broadcast()
-	streams := make(map[protocol.StreamID]item)
-	for k, v := range m.streams {
-		streams[k] = v
-	}
-	return streams
+	m.mutex.Unlock()
 }

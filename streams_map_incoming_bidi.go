@@ -120,14 +120,9 @@ func (m *incomingBidiStreamsMap) DeleteStream(id protocol.StreamID) error {
 	return nil
 }
 
-func (m *incomingBidiStreamsMap) CloseWithError(err error) map[protocol.StreamID]streamI {
+func (m *incomingBidiStreamsMap) CloseWithError(err error) {
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	m.closeErr = err
+	m.mutex.Unlock()
 	m.cond.Broadcast()
-	streams := make(map[protocol.StreamID]streamI)
-	for k, v := range m.streams {
-		streams[k] = v
-	}
-	return streams
 }
