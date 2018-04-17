@@ -16,7 +16,8 @@ type StreamID = protocol.StreamID
 // A VersionNumber is a QUIC version number.
 type VersionNumber = protocol.VersionNumber
 
-var VersionGQUIC39 = protocol.Version39
+// VersionGQUIC39 is gQUIC version 39.
+const VersionGQUIC39 = protocol.Version39
 var VersionTLS = protocol.VersionTLS
 
 // A Cookie can be used to verify the ownership of the client address.
@@ -121,6 +122,8 @@ type Session interface {
 	AcceptUniStream() (ReceiveStream, error)
 	// OpenStream opens a new bidirectional QUIC stream.
 	// It returns a special error when the peer's concurrent stream limit is reached.
+	// There is no signaling to the peer about new streams:
+	// The peer can only accept the stream after data has been sent on the stream.
 	// TODO(#1152): Enable testing for the special error
 	OpenStream() (Stream, error)
 	// OpenStreamSync opens a new bidirectional QUIC stream.
