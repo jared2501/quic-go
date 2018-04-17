@@ -24,7 +24,7 @@ const (
 	// Minimum time in the future a tail loss probe alarm may be set for.
 	minTPLTimeout = 10 * time.Millisecond
 	// Minimum time in the future an RTO alarm may be set for.
-	minRTOTimeout = 200 * time.Millisecond
+	minRTOTimeout = 300 * time.Millisecond
 	// maxRTOTimeout is the maximum RTO time
 	maxRTOTimeout = 60 * time.Second
 )
@@ -61,6 +61,8 @@ type sentPacketHandler struct {
 
 	// The number of times an RTO has been sent without receiving an ack.
 	rtoCount uint32
+	// The number of RTO probe packets that should be sent.
+	numRTOs int
 
 	// The time at which the next packet will be considered lost based on early transmit or exceeding the reordering window in time.
 	lossTime time.Time
@@ -163,6 +165,9 @@ func (h *sentPacketHandler) sentPacketImpl(packet *Packet) bool /* isRetransmitt
 		packet.includedInBytesInFlight = true
 		h.bytesInFlight += packet.Length
 		packet.canBeRetransmitted = true
+		if h.numRTOs > 0 {
+			h.numRTOs--
+		}
 	}
 	h.congestion.OnPacketSent(packet.SendTime, h.bytesInFlight, packet.PacketNumber, packet.Length, isRetransmittable)
 
@@ -196,6 +201,7 @@ func (h *sentPacketHandler) ReceivedAck(ackFrame *wire.AckFrame, withPacketNumbe
 		return err
 	}
 
+	priorInFlight := h.bytesInFlight
 	for _, p := range ackedPackets {
 		if encLevel < p.EncryptionLevel {
 			return fmt.Errorf("Received ACK with encryption level %s that acks a packet %d (encryption level %s)", encLevel, p.PacketNumber, p.EncryptionLevel)
@@ -209,9 +215,12 @@ func (h *sentPacketHandler) ReceivedAck(ackFrame *wire.AckFrame, withPacketNumbe
 		if err := h.onPacketAcked(p); err != nil {
 			return err
 		}
+		if p.includedInBytesInFlight {
+			h.congestion.OnPacketAcked(p.PacketNumber, p.Length, priorInFlight)
+		}
 	}
 
-	if err := h.detectLostPackets(rcvTime); err != nil {
+	if err := h.detectLostPackets(rcvTime, priorInFlight); err != nil {
 		return err
 	}
 	h.updateLossDetectionAlarm()
@@ -288,7 +297,7 @@ func (h *sentPacketHandler) updateLossDetectionAlarm() {
 	}
 }
 
-func (h *sentPacketHandler) detectLostPackets(now time.Time) error {
+func (h *sentPacketHandler) detectLostPackets(now time.Time, priorInFlight protocol.ByteCount) error {
 	h.lossTime = time.Time{}
 
 	maxRTT := float64(utils.MaxDuration(h.rttStats.LatestRTT(), h.rttStats.SmoothedRTT()))
@@ -314,6 +323,7 @@ func (h *sentPacketHandler) detectLostPackets(now time.Time) error {
 		// the bytes in flight need to be reduced no matter if this packet will be retransmitted
 		if p.includedInBytesInFlight {
 			h.bytesInFlight -= p.Length
+			h.congestion.OnPacketLost(p.PacketNumber, p.Length, priorInFlight)
 		}
 		if p.canBeRetransmitted {
 			// queue the packet for retransmission, and report the loss to the congestion controller
@@ -321,9 +331,6 @@ func (h *sentPacketHandler) detectLostPackets(now time.Time) error {
 			if err := h.queuePacketForRetransmission(p); err != nil {
 				return err
 			}
-		}
-		if p.includedInBytesInFlight {
-			h.congestion.OnPacketLost(p.PacketNumber, p.Length, h.bytesInFlight)
 		}
 		h.packetHistory.Remove(p.PacketNumber)
 	}
@@ -340,10 +347,11 @@ func (h *sentPacketHandler) OnAlarm() error {
 		err = h.queueHandshakePacketsForRetransmission()
 	} else if !h.lossTime.IsZero() {
 		// Early retransmit or time loss detection
-		err = h.detectLostPackets(now)
+		err = h.detectLostPackets(now, h.bytesInFlight)
 	} else {
 		// RTO
 		h.rtoCount++
+		h.numRTOs += 2
 		err = h.queueRTOs()
 	}
 	if err != nil {
@@ -388,7 +396,6 @@ func (h *sentPacketHandler) onPacketAcked(p *Packet) error {
 	// this also applies to packets that have been retransmitted as probe packets
 	if p.includedInBytesInFlight {
 		h.bytesInFlight -= p.Length
-		h.congestion.OnPacketAcked(p.PacketNumber, p.Length, h.bytesInFlight)
 	}
 	if h.rtoCount > 0 {
 		h.verifyRTO(p.PacketNumber)
@@ -459,14 +466,17 @@ func (h *sentPacketHandler) SendMode() SendMode {
 		h.logger.Debugf("Limited by the number of tracked packets: tracking %d packets, maximum %d", numTrackedPackets, protocol.MaxTrackedSentPackets)
 		return SendNone
 	}
-	// Send retransmissions first, if there are any.
-	if len(h.retransmissionQueue) > 0 {
-		return SendRetransmission
+	if h.numRTOs > 0 {
+		return SendRTO
 	}
 	// Only send ACKs if we're congestion limited.
 	if cwnd := h.congestion.GetCongestionWindow(); h.bytesInFlight > cwnd {
 		h.logger.Debugf("Congestion limited: bytes in flight %d, window %d", h.bytesInFlight, cwnd)
 		return SendAck
+	}
+	// Send retransmissions first, if there are any.
+	if len(h.retransmissionQueue) > 0 {
+		return SendRetransmission
 	}
 	if numTrackedPackets >= protocol.MaxOutstandingSentPackets {
 		h.logger.Debugf("Max outstanding limited: tracking %d packets, maximum: %d", numTrackedPackets, protocol.MaxOutstandingSentPackets)
@@ -480,6 +490,10 @@ func (h *sentPacketHandler) TimeUntilSend() time.Time {
 }
 
 func (h *sentPacketHandler) ShouldSendNumPackets() int {
+	if h.numRTOs > 0 {
+		// RTO probes should not be paced, but must be sent immediately.
+		return h.numRTOs
+	}
 	delay := h.congestion.TimeUntilSend(h.bytesInFlight)
 	if delay == 0 || delay > protocol.MinPacingDelay {
 		return 1
@@ -545,9 +559,12 @@ func (h *sentPacketHandler) computeHandshakeTimeout() time.Duration {
 }
 
 func (h *sentPacketHandler) computeRTOTimeout() time.Duration {
-	rto := h.congestion.RetransmissionDelay()
-	if rto == 0 {
+	var rto time.Duration
+	rtt := h.rttStats.SmoothedRTT()
+	if rtt == 0 {
 		rto = defaultRTOTimeout
+	} else {
+		rto = rtt + 4*h.rttStats.MeanDeviation()
 	}
 	rto = utils.MaxDuration(rto, minRTOTimeout)
 	// Exponential backoff

@@ -9,7 +9,7 @@ import (
 
 const (
 	maxBurstBytes                                        = 3 * protocol.DefaultTCPMSS
-	defaultMinimumCongestionWindow protocol.PacketNumber = 10
+	defaultMinimumCongestionWindow protocol.PacketNumber = 2
 	renoBeta                       float32               = 0.7 // Reno backoff factor.
 )
 
@@ -291,12 +291,4 @@ func (c *cubicSender) OnConnectionMigration() {
 // SetSlowStartLargeReduction allows enabling the SSLR experiment
 func (c *cubicSender) SetSlowStartLargeReduction(enabled bool) {
 	c.slowStartLargeReduction = enabled
-}
-
-// RetransmissionDelay gives the time to retransmission
-func (c *cubicSender) RetransmissionDelay() time.Duration {
-	if c.rttStats.SmoothedRTT() == 0 {
-		return 0
-	}
-	return c.rttStats.SmoothedRTT() + c.rttStats.MeanDeviation()*4
 }

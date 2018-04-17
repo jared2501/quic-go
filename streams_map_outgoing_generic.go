@@ -4,13 +4,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cheekybits/genny/generic"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/wire"
 	"github.com/lucas-clemente/quic-go/qerr"
 )
-
-type item generic.Type
 
 //go:generate genny -in $GOFILE -out streams_map_outgoing_bidi.go gen "item=streamI Item=BidiStream"
 //go:generate genny -in $GOFILE -out streams_map_outgoing_uni.go gen "item=sendStreamI Item=UniStream"
@@ -116,14 +113,12 @@ func (m *outgoingItemsMap) SetMaxStream(id protocol.StreamID) {
 	m.mutex.Unlock()
 }
 
-func (m *outgoingItemsMap) CloseWithError(err error) map[protocol.StreamID]item {
+func (m *outgoingItemsMap) CloseWithError(err error) {
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	m.closeErr = err
-	m.cond.Broadcast()
-	streams := make(map[protocol.StreamID]item)
-	for k, v := range m.streams {
-		streams[k] = v
+	for _, str := range m.streams {
+		str.closeForShutdown(err)
 	}
-	return streams
+	m.cond.Broadcast()
+	m.mutex.Unlock()
 }
