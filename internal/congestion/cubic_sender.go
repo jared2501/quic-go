@@ -9,7 +9,7 @@ import (
 
 const (
 	maxBurstBytes                                        = 3 * protocol.DefaultTCPMSS
-	defaultMinimumCongestionWindow protocol.PacketNumber = 10
+	defaultMinimumCongestionWindow protocol.PacketNumber = 2
 	renoBeta                       float32               = 0.7 // Reno backoff factor.
 )
 
