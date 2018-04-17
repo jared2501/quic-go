@@ -24,7 +24,7 @@ const (
 	// Minimum time in the future a tail loss probe alarm may be set for.
 	minTPLTimeout = 10 * time.Millisecond
 	// Minimum time in the future an RTO alarm may be set for.
-	minRTOTimeout = 200 * time.Millisecond
+	minRTOTimeout = 300 * time.Millisecond
 	// maxRTOTimeout is the maximum RTO time
 	maxRTOTimeout = 60 * time.Second
 )
